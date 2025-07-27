@@ -14,6 +14,7 @@ appId: com.duckduckgo.mobile.ios
     arguments:
         isOnboardingCompleted: ${ONBOARDING_COMPLETED} # Renaming `isOnboardingCompleted` requires to update LaunchOptionsHandler `isOnboardingCompleted` key
         currentAppVariant: ${APP_VARIANT} # Renaming `currentAppVariant` requires to update LaunchOptionsHandler `currentAppVariant` key
-- assertVisible:
-    id: "searchEntry"
-    timeout: 60000 # 30 seconds in milliseconds
+- extendedWaitUntil:
+    visible:
+        id: "searchEntry"
+    timeout: 30000
