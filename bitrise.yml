@@ -29,7 +29,7 @@ pipelines:
         depends_on:
         - build_for_testing
         parallel: '1'
-workflows:
+workflowsy:
   ai_pr_summary:
     triggers:
       pull_request:
