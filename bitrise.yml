@@ -3,7 +3,7 @@ format_version: '23'
 default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
 project_type: ios
 app:
-  envs:
+  envsalm:
   - TEST_SHARD_COUNT: 2
   - BITRISE_PROJECT_PATH: iOS/DuckDuckGo-iOS.xcodeproj
     opts:
