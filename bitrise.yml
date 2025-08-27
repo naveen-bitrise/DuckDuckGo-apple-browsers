@@ -1,0 +1,519 @@
+---
+format_version: '23'
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: ios
+app:
+  envs:
+  - TEST_SHARD_COUNT: 2
+  - BITRISE_PROJECT_PATH: iOS/DuckDuckGo-iOS.xcodeproj
+    opts:
+      is_expand: false
+  - BITRISE_SCHEME: iOS Browser
+    opts:
+      is_expand: false
+  - BITRISE_DISTRIBUTION_METHOD: development
+    opts:
+      is_expand: false
+pipelines:
+  run_tests:
+    workflows:
+      build_for_testing: {}
+      test_without_building:
+        depends_on:
+        - build_for_testing
+        parallel: "$TEST_SHARD_COUNT"
+  pipeline_run_maestro_tests:
+    workflows:
+      build_for_testing: {}
+      run-maestro-tests:
+        depends_on:
+        - build_for_testing
+        parallel: '1'
+workflows:
+  ai_pr_summary:
+    triggers:
+      pull_request:
+      - target_branch: "*"
+        source_branch: "*"
+        changed_files: "*"
+    status_report_name: AI Review
+    meta:
+      bitrise.io:
+        machine_type_id: g2.linux.medium
+        stack: linux-docker-android-22.04
+    envs:
+    - GITHUB_TOKEN: "$AI_GITHUB_TOKEN"
+    - LITELLM_API_KEY: "$LITELLM_API_KEY"
+    - PUBSUB_TOPIC_ID: bitcode-analytics
+    - PUBSUB_PROJECT_ID: ip-ai-dev
+    - PUBSUB_CREDENTIALS_JSON_B64: "$AI_PUBSUB_CREDENTIALS_JSON_B64"
+    steps:
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@8.4.0: {}
+    - script@1.2.1:
+        title: Generate AI Review for PR
+        inputs:
+        - content: |-
+            #!/bin/bash
+            set -e
+
+            sudo apt update
+            sudo apt install ripgrep -y
+
+            # Parse repository name from repo URL (works for SSH & HTTPS)
+            REPO_URL="${GIT_REPOSITORY_URL}"
+            REPO=$(echo "$REPO_URL" | sed -E 's#(git@|https://)([^/:]+)[/:]([^/]+)/([^.]+)(\.git)?#\3/\4#')
+
+            # 1. Unshallow the repo if it's a shallow clone (safe to run even if already full)
+            git fetch --unshallow || true
+
+            # 2. Fetch all branch refs (this ensures both the PR and the target/destination branch are present)
+            git fetch origin
+
+            # 3. Fetch both relevant branches explicitly for safety (redundant but safe)
+            git fetch origin "$BITRISEIO_GIT_BRANCH_DEST"
+            git fetch origin "$BITRISE_GIT_BRANCH"
+
+            # 4. Create/reset local branches to match the remote
+            git checkout -B "$BITRISEIO_GIT_BRANCH_DEST" "origin/$BITRISEIO_GIT_BRANCH_DEST"
+            git checkout -B "$BITRISE_GIT_BRANCH" "origin/$BITRISE_GIT_BRANCH"
+
+            # (Optionally: check out the PR branch if that is the branch you want to analyze)
+            git checkout "$BITRISE_GIT_BRANCH"
+
+            # Download and install bitcode
+            curl -L https://storage.googleapis.com/bitrise-bitcode/bitcode-linux-amd64.tar.gz -o /tmp/bitcode-linux-amd64.tar.gz
+            sudo tar -xzf /tmp/bitcode-linux-amd64.tar.gz -C /usr/local/bin/
+            sudo chmod +x /usr/local/bin/bitcode
+
+            # 6. Run your AI reviewer (customize flags as needed)
+            bitcode review  \
+              --git-provider github \
+              --pr-id="${BITRISE_PULL_REQUEST}" \
+              --repo="${REPO}" \
+              --max-token-usage 5000000 \
+              --session-id "${BITRISE_BUILD_SLUG}" \
+              --log-level info
+
+            echo "Done! PR reviewed."
+  archive_and_export_app:
+    summary: Run your Xcode tests and create an IPA file to install your app on a
+      device or share it with your team.
+    description: The workflow will first clone your Git repository, cache and
+      install your project's dependencies if any, run your Xcode tests, export
+      an IPA file from the project and save it.
+    steps:
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@8: {}
+    - cocoapods-install@2:
+        inputs:
+        - is_cache_disabled: 'true'
+    - xcode-test@6:
+        inputs:
+        - project_path: "$BITRISE_PROJECT_PATH"
+        - scheme: "$BITRISE_SCHEME"
+        - test_repetition_mode: retry_on_failure
+        - cache_level: none
+    - xcode-archive@5:
+        inputs:
+        - project_path: "$BITRISE_PROJECT_PATH"
+        - scheme: "$BITRISE_SCHEME"
+        - distribution_method: "$BITRISE_DISTRIBUTION_METHOD"
+        - automatic_code_signing: api-key
+        - cache_level: none
+    - deploy-to-bitrise-io@2: {}
+  build_for_testing:
+    steps:
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@8: {}
+    - restore-spm-cache@2: {}
+    - xcode-build-for-test@3:
+        inputs:
+        - project_path: "$BITRISE_PROJECT_PATH"
+        - scheme: "$BITRISE_SCHEME"
+        - destination: platform=iOS Simulator,name=iPhone 16,OS=18.4
+        - output_dir: "$BITRISE_SOURCE_DIR/build"
+    - save-spm-cache@1: {}
+    - deploy-to-bitrise-io@2:
+        inputs:
+        - pipeline_intermediate_files: |-
+            $BITRISE_TEST_BUNDLE_ZIP_PATH:TEST_BUNDLE_ZIP
+            $BITRISE_SOURCE_DIR/.maestro:MAESTRO_TESTS
+  run-maestro-tests:
+    envs:
+    - TEST_TAGS: ad_click_detection_flow, browser, data_clearing, onboarding, privacy,
+        release, security, sync
+    steps:
+    - script@1:
+        title: Select Test Tag Based on Parallel Index
+        inputs:
+        - content: "#!/bin/bash
+
+            set -ex
+
+            IFS=',' read -ra TAGS <<< \"$TEST_TAGS\"
+
+            INDEX=$((BITRISE_IO_PARALLEL_INDEX))
+
+            if [ $INDEX -lt ${#TAGS[@]} ]; then
+
+            \  RAW_TEST_TAG=\"${TAGS[$INDEX]}\"
+
+            \ \ 
+
+            \  TEST_TAG=$(echo \"$RAW_TEST_TAG\" | xargs)
+
+            \  echo \"Running tests for tag: $TEST_TAG\"
+
+            \  envman add --key TEST_TAG --value \"$TEST_TAG\"
+
+            \ \ 
+
+            \  TEST_FOLDER_PATH=\".maestro/${TEST_TAG}_tests\"
+
+            \  echo \"Test folder path is: $TEST_FOLDER_PATH\"
+
+            \  # Save the path for the next step to use
+
+            \  envman add --key TEST_FOLDER_PATH --value \"$TEST_FOLDER_PATH\"
+
+            else
+
+            \  echo \"No test tag found for index $INDEX\"
+
+            \  exit 1
+
+            fi
+
+            TEST_RUN_NAME=\"${TEST_TAG}_${BITRISE_GIT_COMMIT}\"
+
+            envman add --key TEST_RUN_NAME --value \"$TEST_RUN_NAME\""
+    - pull-intermediate-files@1: {}
+    - script@1:
+        title: Extract build artifacts
+        inputs:
+        - content: |-
+            #!/bin/bash
+            set -ex
+
+            # Unzip the test bundle. Based on your screenshot, this creates a 'testbundle' directory.
+            unzip "$TEST_BUNDLE_ZIP"
+
+            # Unpack the Maestro tests
+            # Note: The .maestro artifact is now a directory, not a tarball
+            mv "$MAESTRO_TESTS" "$BITRISE_SOURCE_DIR/.maestro"
+
+            echo "Artifacts extracted successfully."
+            echo "Directory listing:"
+            ls -lR
+    - xcode-start-simulator@0:
+        inputs:
+        - destination: platform=iOS Simulator,name=iPhone 16,OS=18.4
+        - wait_for_boot_timeout: '60'
+    - script@1:
+        title: Run Maestro Tests
+        inputs:
+        - content: "#!/bin/bash
+
+            set -ex
+
+
+            # ... (Maestro install and Simulator boot logic is the same)
+
+            curl -Ls \"https://get.maestro.mobile.dev\" | bash
+
+            export PATH=\"$PATH:$HOME/.maestro/bin\"
+
+            # ... boot simulator ...
+
+
+            # Start the iOS simulator
+
+            UDID=$(xcrun simctl list devices \"iPhone 16\" | grep '(Booted)' |
+            grep -E -o -i \"([0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12})\")
+
+            if [ -z \"$UDID\" ]; then
+
+            \  echo \"Booted iPhone 16 simulator not found. Starting one...\"
+
+            \  UDID=$(xcrun simctl list devices \"iPhone 16\" | grep -v
+            '(Booted)' | grep -E -o -i
+            \"([0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12})\" | head -n 1)
+
+            \  xcrun simctl boot $UDID
+
+            \  xcrun simctl bootstatus $UDID -b
+
+            fi
+
+            echo \"Using simulator with UDID: $UDID\"
+
+
+            # Find the app bundle inside the extracted 'testbundle' directory.
+
+            # This path matches the structure you discovered.
+
+            APP_PATH=$(find $BITRISE_SOURCE_DIR -name \"*.app\" -type d | head
+            -n 1)
+
+
+            if [ -z \"$APP_PATH\" ]; then
+
+            \  echo \"Could not find .app file inside the extracted testbundle
+            directory!\"
+
+            \  exit 1
+
+            fi
+
+
+            echo \"Found app at: $APP_PATH\"
+
+
+            # The rest of the script is the same
+
+            xcrun simctl install $UDID \"$APP_PATH\"
+
+            export ONBOARDING_COMPLETED=true
+
+            cd $BITRISE_SOURCE_DIR
+
+            maestro test --format junit --output
+            \"maestro-test-results-$TEST_TAG.xml\" --include-tags \"$TEST_TAG\"
+            .maestro/
+
+            xcrun simctl shutdown $UDID
+
+            \           \ 
+
+            # Create summary file...
+
+            echo \"Test tag: $TEST_TAG\" > test-summary.txt"
+        run_if: false
+    - script@1:
+        inputs:
+        - content: "#!/usr/bin/env bash
+
+            # fail if any commands fails
+
+            set -e
+
+            # make pipelines' return status equal the last command to exit with
+            a non-zero status, or zero if all commands exit successfully
+
+            set -o pipefail
+
+            # debug log
+
+            set -x
+
+
+            \ # --- Automatically update the iOS version in common.sh ---
+
+            echo \"Updating iOS version in common.sh to 18.4...\"
+
+            sed -i '' 's/iOS-18-2/iOS-18-4/g' .maestro/common.sh
+
+
+            mkdir -p DerivedData/Build/Products/
+
+            mv Debug-iphonesimulator DerivedData/Build/Products/
+
+
+            echo \"Running UI tests for tag: $TEST_TAG\"
+
+
+            export MAESTRO_VERSION=\"1.40.3\"
+
+            curl -Ls \"https://get.maestro.mobile.dev\" | bash
+
+            export PATH=\"$PATH:$HOME/.maestro/bin\"
+
+
+            brew tap facebook/fb
+
+            brew install facebook/fb/idb-companion
+
+
+            # --- Make both scripts executable ---
+
+            chmod +x .maestro/setup_ui_tests.sh\ 
+
+            chmod +x .maestro/run_ui_tests.sh
+
+
+            # --- Run the setup script first ---
+
+            ./.maestro/setup_ui_tests.sh --skip-build
+
+
+            # --- Now, run the test script ---
+
+            ./.maestro/run_ui_tests.sh \"$TEST_FOLDER_PATH\""
+        title: Run Maestro Tests V2
+    - script@1:
+        title: Collect Maestro videos for Bitrise deploy
+        inputs:
+        - content: "mkdir -p \"$BITRISE_DEPLOY_DIR\"
+
+            find ~/.maestro/tests -name \"*.mp4\" -exec cp {}
+            \"$BITRISE_DEPLOY_DIR\" \\; \ 
+
+
+            # Create deploy dir if it doesn't exist
+
+            mkdir -p \"$BITRISE_TEST_RESULT_DIR\"
+
+            for xml_file in \"$MAESTRO_RESULTS_DIR\"/*/report.xml; do
+
+            \  if [ -f \"$xml_file\" ]; then
+
+            \    test_name=$(basename \"$(dirname \"$xml_file\")\")
+
+            \    test_dir=\"${BITRISE_TEST_RESULT_DIR}/${test_name}\"
+
+            \    mkdir -p \"${test_dir}\"
+
+            \    echo \"Copying Maestro XML report to: ${test_dir}\"
+
+            \    cp \"$xml_file\" \"${test_dir}/\"
+
+
+            \    test_info=\"${test_dir}/test-info.json\"
+
+            \    echo \"Creating Test info at: ${test_info}\"
+
+            \    echo \"{ \\\"test-name\\\": \\\"${test_name}\\\" }\" >
+            \"$test_info\"
+
+            \  fi
+
+            done"
+        is_always_run: true
+        run_if: false
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            echo "creating"
+            mkdir -p "$BITRISE_DEPLOY_DIR"
+            cd ~/.maestro
+            echo "zipping"
+            zip -r "$BITRISE_DEPLOY_DIR/maestro-tests.zip" tests
+            echo "listing"
+            ls -ls "$BITRISE_DEPLOY_DIR"
+        is_always_run: true
+    - deploy-to-bitrise-io@2: {}
+  run_tests:
+    summary: Run your Xcode tests and get the test report.
+    description: The workflow will first clone your Git repository, cache and
+      install your project's dependencies if any, run your Xcode tests and save
+      the test results.
+    steps:
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@8: {}
+    - restore-spm-cache@2: {}
+    - xcode-test@6:
+        inputs:
+        - project_path: "$BITRISE_PROJECT_PATH"
+        - scheme: "$BITRISE_SCHEME"
+        - test_repetition_mode: retry_on_failure
+        - cache_level: none
+        - destination: platform=iOS Simulator,name=iPhone 16,OS=18.4
+    - save-spm-cache@1: {}
+    - deploy-to-bitrise-io@2: {}
+    triggers:
+      push:
+      - branch: main
+        enabled: false
+      pull_request:
+      - source_branch: "*"
+  test_without_building:
+    steps:
+    - pull-intermediate-files@1: {}
+    - xcode-test-without-building@0:
+        inputs:
+        - only_testing: "$BITRISE_TEST_SHARDS_PATH/$BITRISE_IO_PARALLEL_INDEX"
+        - xctestrun: "$BITRISE_TEST_BUNDLE_PATH/all_tests.xctestrun"
+  UITests:
+    summary: Run your Xcode tests and get the test report.
+    description: The workflow will first clone your Git repository, cache and
+      install your project's dependencies if any, run your Xcode tests and save
+      the test results.
+    steps:
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@8: {}
+    - restore-spm-cache@2: {}
+    - xcode-test@6:
+        inputs:
+        - project_path: "$BITRISE_PROJECT_PATH"
+        - scheme: iOS ATB UI Tests
+        - test_repetition_mode: retry_on_failure
+        - cache_level: none
+    - save-spm-cache@1: {}
+    - deploy-to-bitrise-io@2: {}
+    triggers:
+      push:
+      - branch: main
+        enabled: false
+      pull_request:
+      - source_branch: "*"
+        enabled: false
+    meta:
+      bitrise.io:
+        machine_type_id: g2.mac.4x-large
+  run_ai_selective_tests:
+    summary: Run your Xcode tests and get the test report.
+    description: The workflow will first clone your Git repository, cache and
+      install your project's dependencies if any, run your Xcode tests and save
+      the test results.
+    steps:
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@8: {}
+    - restore-spm-cache@2: {}
+    - git::https://github.com/bitrise-steplib/bitrise-step-ai-pr-code-reviewer.git@main:
+        title: AI Selective tests Gen
+        inputs:
+        - review_prompt: |-
+            Based on the code changes, identify which iOS tests should run.
+            Output ONLY the test names in this exact format, one per line:
+            TARGET/TestClass/testMethod
+            Examples:
+            MyAppTests/UserServiceTests/testCreateUser
+            MyAppTests/AuthenticationTests/testLoginFlow
+
+            Output nothing else - just the test names.
+        - claude_api_key: "$CLAUDE_API_KEY"
+    - xcode-test@6:
+        inputs:
+        - project_path: "$BITRISE_PROJECT_PATH"
+        - scheme: "$BITRISE_SCHEME"
+        - test_repetition_mode: retry_on_failure
+        - cache_level: none
+        - destination: platform=iOS Simulator,name=iPhone 16,OS=18.4
+        - xcodebuild_options: "--only-testing ${deploy_dir}/review.txt"
+    - save-spm-cache@1: {}
+    - deploy-to-bitrise-io@2: {}
+    triggers:
+      push:
+      - branch: main
+        enabled: false
+      pull_request:
+      - source_branch: "*"
+meta:
+  bitrise.io:
+    stack: osx-xcode-16.4.x
+    machine_type_id: g2.mac.large
