@@ -137,7 +137,7 @@ extension TabCrashRecoveryExtension: NavigationResponder {
         let lastFireTime = lastPixelFireTime ?? Date.distantPast
         if now.timeIntervalSince(lastFireTime) >= 0.1 {
             lastPixelFireTime = now
-            
+
             Task.detached(priority: .utility) {
 #if APPSTORE
                 let additionalParameters = [String: String]()
