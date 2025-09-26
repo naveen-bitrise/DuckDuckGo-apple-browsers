@@ -133,7 +133,6 @@ extension TabCrashRecoveryExtension: NavigationResponder {
 
         attemptTabCrashRecovery(for: error, in: webView)
 
-        // Debounce pixel firing - only fire if enough time has passed
         let now = Date()
         let lastFireTime = lastPixelFireTime ?? Date.distantPast
         if now.timeIntervalSince(lastFireTime) >= 0.1 {
