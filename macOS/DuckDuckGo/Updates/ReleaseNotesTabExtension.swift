@@ -16,10 +16,12 @@
 //  limitations under the License.
 //
 
+import BrowserServicesKit
 import Combine
 import Common
 import Foundation
 import Navigation
+import PixelKit
 import WebKit
 
 #if SPARKLE
@@ -49,7 +51,7 @@ public struct ReleaseNotesValues: Codable {
     let lastUpdate: UInt
     let releaseTitle: String?
     let releaseNotes: [String]?
-    let releaseNotesPrivacyPro: [String]?
+    let releaseNotesSubscription: [String]?
     let downloadProgress: Double?
     let automaticUpdate: Bool?
 }
@@ -132,7 +134,7 @@ extension ReleaseNotesValues {
          lastUpdate: UInt,
          releaseTitle: String? = nil,
          releaseNotes: [String]? = nil,
-         releaseNotesPrivacyPro: [String]? = nil,
+         releaseNotesSubscription: [String]? = nil,
          downloadProgress: Double? = nil,
          automaticUpdate: Bool?) {
         self.status = status.rawValue
@@ -141,16 +143,43 @@ extension ReleaseNotesValues {
         self.lastUpdate = lastUpdate
         self.releaseTitle = releaseTitle
         self.releaseNotes = releaseNotes
-        self.releaseNotesPrivacyPro = releaseNotesPrivacyPro
+        self.releaseNotesSubscription = releaseNotesSubscription
         self.downloadProgress = downloadProgress
         self.automaticUpdate = automaticUpdate
     }
 
-    init(from updateController: UpdateController) {
+    init(from updateController: UpdateController, pixelKit: PixelKit? = PixelKit.shared) {
         let currentVersion = "\(AppVersion().versionNumber) (\(AppVersion().buildNumber))"
         let lastUpdate = UInt((updateController.lastUpdateCheckDate ?? Date()).timeIntervalSince1970)
 
+        // Fall back to cached release notes if necessary
+        // This happens when there's no connectivity,
+        // or when the appcast hasn't finished loading by the time the Release Notes screen shows up
         guard let latestUpdate = updateController.latestUpdate else {
+            let keyValueStore = Application.appDelegate.keyValueStore
+            if let data = try? keyValueStore.object(forKey: UpdateController.Constants.pendingUpdateInfoKey) as? Data,
+               let cached = try? JSONDecoder().decode(UpdateController.PendingUpdateInfo.self, from: data) {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "MMMM dd yyyy"
+                let releaseTitle = formatter.string(from: cached.date)
+
+                let cachedVersion = "\(cached.version) (\(cached.build))"
+                let status = currentVersion == cachedVersion ? ReleaseNotesValues.Status.loaded : ReleaseNotesValues.Status.updateReady
+
+                self.init(status: status,
+                          currentVersion: currentVersion,
+                          latestVersion: cachedVersion,
+                          lastUpdate: lastUpdate,
+                          releaseTitle: releaseTitle,
+                          releaseNotes: cached.releaseNotes,
+                          releaseNotesSubscription: cached.releaseNotesSubscription,
+                          downloadProgress: 0.00,
+                          automaticUpdate: updateController.areAutomaticUpdatesEnabled)
+                return
+            }
+
+            pixelKit?.fire(GeneralPixel.releaseNotesEmpty, frequency: .dailyAndCount)
+
             self.init(status: updateController.updateProgress.toStatus,
                       currentVersion: currentVersion,
                       lastUpdate: lastUpdate,
@@ -192,7 +221,7 @@ extension ReleaseNotesValues {
                   lastUpdate: lastUpdate,
                   releaseTitle: latestUpdate.title,
                   releaseNotes: latestUpdate.releaseNotes,
-                  releaseNotesPrivacyPro: latestUpdate.releaseNotesPrivacyPro,
+                  releaseNotesSubscription: latestUpdate.releaseNotesSubscription,
                   downloadProgress: downloadProgress,
                   automaticUpdate: automaticUpdate)
     }
@@ -200,7 +229,7 @@ extension ReleaseNotesValues {
 
 private extension Update {
     var versionString: String? {
-        "\(version) \(build)"
+        "\(version) (\(build))"
     }
 }
 

@@ -20,6 +20,8 @@
 import UIKit
 
 protocol MainViewEditingStateTransitioning {
-    func hide(with yOffset: CGFloat)
+    var newTabView: UIView? { get }
+    
+    func hide(with barYOffset: CGFloat, contentYOffset: CGFloat)
     func show()
 }

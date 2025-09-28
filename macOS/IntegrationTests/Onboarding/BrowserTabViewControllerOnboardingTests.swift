@@ -41,7 +41,7 @@ final class BrowserTabViewControllerOnboardingTests: XCTestCase {
 
     @MainActor override func setUp() {
         autoreleasepool {
-            let tabCollectionViewModel = TabCollectionViewModel()
+            let tabCollectionViewModel = TabCollectionViewModel(isPopup: false)
             featureFlagger = MockFeatureFlagger()
             featureFlagger.enabledFeatureFlags = [.contextualOnboarding]
             pixelReporter = CapturingOnboardingPixelReporter()
@@ -343,14 +343,13 @@ final class BrowserTabViewControllerOnboardingTests: XCTestCase {
         let mainViewController = MainViewController(
             tabCollectionViewModel: TabCollectionViewModel(tabCollection: TabCollection(tabs: [])),
             autofillPopoverPresenter: DefaultAutofillPopoverPresenter(),
-            aiChatSidebarProvider: AIChatSidebarProvider(),
+            aiChatSidebarProvider: AIChatSidebarProvider(featureFlagger: MockFeatureFlagger()),
             fireCoordinator: fireCoordinator
         )
         window.isVisible = false
         let mainWindowController = MainWindowController(
             window: window,
             mainViewController: mainViewController,
-            popUp: false,
             fireViewModel: fireCoordinator.fireViewModel,
             visualStyle: NSApp.delegateTyped.visualStyle
         )

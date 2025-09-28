@@ -22,10 +22,13 @@ public enum DesignSystemColor {
     case background
 
     case backgroundTertiary
-    case surface
-    case surfaceTertiary
     case backgroundSheets
     case panel
+
+    // Surfaces
+    case surface // T-surface/secondary
+    case surfaceTertiary
+    case surfaceCanvas
 
     case urlBar
 
@@ -54,6 +57,7 @@ public enum DesignSystemColor {
 
     // Brand
     case accent
+    case accentGlowSecondary
     case accentContentPrimary
 
     // System
@@ -67,6 +71,7 @@ public enum DesignSystemColor {
     // Icons
     case icons
     case iconsSecondary
+    case iconsTertiary
 
     // Buttons/Primary
     case buttonsPrimaryDefault

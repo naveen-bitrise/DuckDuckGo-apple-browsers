@@ -29,12 +29,18 @@ struct DefaultColorPalette: ColorPaletteDefinition {
     private static let xE0E0E0 = Color(0xE0E0E0)
     private static let xF2F2F2 = Color(0xF2F2F2)
     private static let xF9F9F9 = Color(0xF9F9F9)
+    private static let x000000 = Color(0x000000)
+    private static let xFFFFFF = Color(0xFFFFFF)
+    private static let xFAFAFA = Color(0xFAFAFA)
+    private static let x3969EF = Color(0x3969EF)
 
     // New dark mode colors
     private static let x080808 = Color(0x080808)
     private static let x282828 = Color(0x282828)
     private static let x373737 = Color(0x373737)
     private static let x474747 = Color(0x474747)
+    private static let x1C1C1C = Color(0x1C1C1C)
+    private static let x7295F6 = Color(0x7295F6)
 
     // URL bar
     private static let urlBar = DynamicColor(lightColor: .white, darkColor: x474747)
@@ -42,6 +48,7 @@ struct DefaultColorPalette: ColorPaletteDefinition {
     // Surfaces
     private static let surface = DynamicColor(lightColor: xF9F9F9, darkColor: x373737)
     private static let surfaceTertiary = DynamicColor(lightColor: .white, darkColor: .x474747)
+    private static let surfaceCanvas = DynamicColor(lightColor: xFAFAFA, darkColor: x1C1C1C)
 
     // Backgrounds
     private static let backdrop = DynamicColor(lightColor: xE0E0E0, darkColor: x080808)
@@ -53,7 +60,7 @@ struct DefaultColorPalette: ColorPaletteDefinition {
     // Shadow
     private static let shadowPrimary = DynamicColor(lightColor: x1F1F1F.opacity(0.04), darkColor: .shade(0.16))
     private static let shadowSecondary = DynamicColor(lightColor: x1F1F1F.opacity(0.08), darkColor: .shade(0.24))
-    private static let shadowTertiary = DynamicColor(lightColor: x1F1F1F.opacity(0.16), darkColor: .shade(0.48))
+    private static let shadowTertiary = DynamicColor(lightColor: x1F1F1F.opacity(0.16), darkColor: .shade(0.32))
 
     // Controls
     private static let controlsFillPrimary = DynamicColor(lightColor: x1F1F1F.opacity(0.09), darkColor: xF9F9F9.opacity(0.12))
@@ -63,6 +70,7 @@ struct DefaultColorPalette: ColorPaletteDefinition {
     // Icons
     private static let icons = DynamicColor(lightColor: x1F1F1F.opacity(0.84), darkColor: .tint(0.78))
     private static let iconsSecondary = DynamicColor(lightColor: x1F1F1F.opacity(0.6), darkColor: .tint(0.48))
+    private static let iconsTertiary = DynamicColor(lightColor: x000000.opacity(0.36), darkColor: xFFFFFF.opacity(0.24))
 
     // Text
     private static let textPrimary = DynamicColor(lightColor: x1F1F1F, darkColor: .tint(0.9))
@@ -93,6 +101,7 @@ struct DefaultColorPalette: ColorPaletteDefinition {
 
     // Brand
     private static let accent = DynamicColor(lightColor: .blue50, darkColor: .blue30)
+    private static let accentGlowSecondary = DynamicColor(lightColor: x3969EF.opacity(0.12), darkColor: x7295F6.opacity(0.12))
 
     // System
     private static let border = DynamicColor(lightColor: .gray30, darkColor: .gray40)
@@ -149,15 +158,14 @@ struct DefaultColorPalette: ColorPaletteDefinition {
         case .backgroundBlur: return backgroundBlur
         case .backdrop: return backdrop
         case .panel: return background
-        case .surface: return surface
         case .icons: return icons
         case .iconsSecondary: return iconsSecondary
+        case .iconsTertiary: return iconsTertiary
         case .textPrimary: return textPrimary
         case .lines: return lines
         case .shadowPrimary: return shadowPrimary
         case .shadowSecondary: return shadowSecondary
         case .shadowTertiary: return shadowTertiary
-        case .surfaceTertiary: return surfaceTertiary
         case .controlsFillPrimary: return controlsFillPrimary
         case .controlsFillSecondary: return controlsFillSecondary
         case .controlsFillTertiary: return controlsFillTertiary
@@ -167,7 +175,12 @@ struct DefaultColorPalette: ColorPaletteDefinition {
         case .highlightDecoration: return highlightDecoration
         case .accentContentPrimary: return accentContentPrimary
 
+        case .surface: return surface
+        case .surfaceTertiary: return surfaceTertiary
+        case .surfaceCanvas: return surfaceCanvas
+
         case .accent: return accent
+        case .accentGlowSecondary: return accentGlowSecondary
         case .alertGreen: return alertGreen
         case .alertYellow: return alertYellow
         case .border: return border

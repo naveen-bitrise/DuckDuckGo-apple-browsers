@@ -58,7 +58,7 @@ extension Preferences {
 
         var body: some View {
             HStack(spacing: 24) {
-                ForEach(ThemeName.allCases, id: \.self) { theme in
+                ForEach(ThemeAppearance.allCases, id: \.self) { theme in
                     ThemeButton(
                         title: theme.displayName,
                         imageName: theme.imageName,
@@ -68,14 +68,14 @@ extension Preferences {
             }
         }
 
-        private func isThemeSelected(_ theme: ThemeName) -> Binding<Bool> {
+        private func isThemeSelected(_ theme: ThemeAppearance) -> Binding<Bool> {
             .init(
                 get: {
-                    model.currentThemeName == theme
+                    model.themeAppearance == theme
                 },
                 set: { isSelected in
                     if isSelected {
-                        model.currentThemeName = theme
+                        model.themeAppearance = theme
                     }
                 }
             )
@@ -84,6 +84,7 @@ extension Preferences {
 
     struct AppearanceView: View {
         @ObservedObject var model: AppearancePreferences
+        @ObservedObject var aiChatModel: AIChatPreferences
 
         var body: some View {
             PreferencePane(UserText.appearance) {
@@ -105,7 +106,13 @@ extension Preferences {
 
                     PreferencePaneSubSection {
                         if model.isOmnibarAvailable {
-                            ToggleMenuItem(UserText.newTabOmnibarSectionTitle, isOn: $model.isOmnibarVisible).accessibilityIdentifier("Preferences.AppearanceView.showOmnibarToggle")
+                            ToggleMenuItem(UserText.newTabOmnibarSectionTitle, isOn: $model.isOmnibarVisible)
+                                .accessibilityIdentifier("Preferences.AppearanceView.showOmnibarToggle")
+                            ToggleMenuItem(UserText.newTabAIChatSectionTitle, isOn: $aiChatModel.showShortcutOnNewTabPage)
+                                .accessibilityIdentifier("Preferences.AppearanceView.showAIChatToggle")
+                                .padding(.leading, 19)
+                                .disabled(!model.isOmnibarVisible)
+                                .visibility(aiChatModel.isAIFeaturesEnabled ? .visible : .gone)
                         }
                         ToggleMenuItem(UserText.newTabFavoriteSectionTitle, isOn: $model.isFavoriteVisible).accessibilityIdentifier("Preferences.AppearanceView.showFavoritesToggle")
                         ToggleMenuItem(UserText.newTabProtectionsReportSectionTitle, isOn: $model.isProtectionsReportVisible)

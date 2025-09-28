@@ -40,7 +40,10 @@ extension AppDelegate {
 
     @MainActor
     @objc func checkForUpdates(_ sender: Any?) {
-#if SPARKLE
+#if APPSTORE
+        PixelKit.fire(CheckForUpdatesAppStorePixels.checkForUpdate(source: .mainMenu))
+        NSWorkspace.shared.open(.appStore)
+#elseif SPARKLE
         if let warning = SupportedOSChecker().supportWarning,
            case .unsupported = warning {
 
@@ -59,7 +62,7 @@ extension AppDelegate {
 
     @objc func newWindow(_ sender: Any?) {
         DispatchQueue.main.async {
-            WindowsManager.openNewWindow()
+            WindowsManager.openNewWindow(burnerMode: .regular)
         }
     }
 
@@ -71,7 +74,7 @@ extension AppDelegate {
 
     @objc func newAIChat(_ sender: Any?) {
         DispatchQueue.main.async {
-            NSApp.delegateTyped.aiChatTabOpener.openAIChatTab(nil, with: .newTab(selected: true))
+            NSApp.delegateTyped.aiChatTabOpener.openNewAIChat(in: .newTab(selected: true))
             PixelKit.fire(AIChatPixel.aichatApplicationMenuFileClicked, frequency: .dailyAndCount, includeAppVersionParameter: true)
         }
     }
@@ -85,6 +88,31 @@ extension AppDelegate {
     @objc func openLocation(_ sender: Any?) {
         DispatchQueue.main.async {
             WindowsManager.openNewWindow()
+        }
+    }
+
+    @objc func openFile(_ sender: Any?) {
+        DispatchQueue.main.async {
+            var window: NSWindow?
+
+            // If no window is opened, we open one when the user taps to open a file.
+            if self.windowControllersManager.lastKeyMainWindowController?.window == nil {
+                window = self.windowControllersManager.openNewWindow()
+            } else {
+                window = self.windowControllersManager.lastKeyMainWindowController?.window
+            }
+
+            guard let window = window else {
+                Logger.general.error("No key window available for file picker")
+                return
+            }
+
+            let openPanel = NSOpenPanel.openFilePanel()
+            openPanel.beginSheetModal(for: window) { [weak self] response in
+                guard response == .OK, let selectedURL = openPanel.url else { return }
+
+                self?.windowControllersManager.show(url: selectedURL, source: .ui, newTab: true)
+            }
         }
     }
 
@@ -424,19 +452,19 @@ extension AppDelegate {
 
     @objc func openImportBookmarksWindow(_ sender: Any?) {
         DispatchQueue.main.async {
-            DataImportView(isDataTypePickerExpanded: true).show()
+            DataImportFlowLauncher().launchDataImport(isDataTypePickerExpanded: true)
         }
     }
 
     @objc func openImportPasswordsWindow(_ sender: Any?) {
         DispatchQueue.main.async {
-            DataImportView(isDataTypePickerExpanded: true).show()
+            DataImportFlowLauncher().launchDataImport(isDataTypePickerExpanded: true)
         }
     }
 
     @objc func openImportBrowserDataWindow(_ sender: Any?) {
         DispatchQueue.main.async {
-            DataImportView(isDataTypePickerExpanded: false).show()
+            DataImportFlowLauncher().launchDataImport(isDataTypePickerExpanded: false)
         }
     }
 
@@ -678,8 +706,10 @@ extension AppDelegate {
         DuckPlayerPreferences.shared.reset()
     }
 
+    @MainActor
     @objc func resetSyncPromoPrompts(_ sender: Any?) {
         SyncPromoManager().resetPromos()
+        DismissableSyncDeviceButtonModel.resetAllState(from: UserDefaults.standard)
     }
 
     @objc func resetAddToDockFeatureNotification(_ sender: Any?) {
@@ -743,16 +773,8 @@ extension AppDelegate {
         Application.appDelegate.configurationManager.forceRefresh(isDebug: true)
     }
 
-    private func setConfigurationUrl(_ configurationUrl: URL?) {
-        var configurationProvider = AppConfigurationURLProvider(
-            privacyConfigurationManager: privacyFeatures.contentBlocking.privacyConfigurationManager,
-            featureFlagger: featureFlagger,
-            customPrivacyConfiguration: configurationUrl
-        )
-        if configurationUrl == nil {
-            configurationProvider.resetToDefaultConfigurationUrl()
-        }
-        Configuration.setURLProvider(configurationProvider)
+    private func setPrivacyConfigurationUrl(_ configurationUrl: URL?) throws {
+        try configurationURLProvider.setCustomURL(configurationUrl, for: .privacyConfiguration)
         Application.appDelegate.configurationManager.forceRefresh(isDebug: true)
         if let configurationUrl {
             Logger.config.debug("New configuration URL set to \(configurationUrl.absoluteString)")
@@ -761,25 +783,37 @@ extension AppDelegate {
         }
     }
 
-    @objc func setCustomConfigurationURL(_ sender: Any?) {
-        let currentConfigurationURL = AppConfigurationURLProvider(
-            privacyConfigurationManager: privacyFeatures.contentBlocking.privacyConfigurationManager,
-            featureFlagger: featureFlagger
-        ).url(for: .privacyConfiguration).absoluteString
-        let alert = NSAlert.customConfigurationAlert(configurationUrl: currentConfigurationURL)
+    private func showErrorAlert(message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Error"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.runModal()
+    }
+
+    @objc func setCustomPrivacyConfigurationURL(_ sender: Any?) {
+        let privacyConfigURL = configurationURLProvider.url(for: .privacyConfiguration).absoluteString
+        let alert = NSAlert.customConfigurationAlert(configurationUrl: privacyConfigURL)
         if alert.runModal() != .cancel {
             guard let textField = alert.accessoryView as? NSTextField,
                   let newConfigurationUrl = URL(string: textField.stringValue) else {
                 Logger.config.error("Failed to set custom configuration URL")
                 return
             }
-
-            setConfigurationUrl(newConfigurationUrl)
+            do {
+                try setPrivacyConfigurationUrl(newConfigurationUrl)
+            } catch let error {
+                showErrorAlert(message: error.localizedDescription)
+            }
         }
     }
 
-    @objc func resetConfigurationToDefault(_ sender: Any?) {
-        setConfigurationUrl(nil)
+    @objc func resetPrivacyConfigurationToDefault(_ sender: Any?) {
+        do {
+            try setPrivacyConfigurationUrl(nil)
+        } catch let error {
+            showErrorAlert(message: error.localizedDescription)
+        }
     }
 
     @objc func resetInstallStatistics() {
@@ -942,7 +976,7 @@ extension MainViewController {
 
     @objc func toggleDownloads(_ sender: Any) {
         var navigationBarViewController = self.navigationBarViewController
-        if view.window?.isPopUpWindow == true {
+        if isInPopUpWindow {
             if let vc = Application.appDelegate.windowControllersManager.lastKeyMainWindowController?.mainViewController.navigationBarViewController {
                 navigationBarViewController = vc
             } else {
@@ -983,6 +1017,10 @@ extension MainViewController {
         LocalPinningManager.shared.togglePinning(for: .downloads)
     }
 
+    @objc func toggleShareShortcut(_ sender: Any) {
+        LocalPinningManager.shared.togglePinning(for: .share)
+    }
+
     @objc func toggleNetworkProtectionShortcut(_ sender: Any) {
         LocalPinningManager.shared.togglePinning(for: .networkProtection)
     }
@@ -1000,8 +1038,8 @@ extension MainViewController {
     }
 
     @objc func home(_ sender: Any?) {
-        guard view.window?.isPopUpWindow == false,
-            let (tab, _) = getActiveTabAndIndex(), tab === tabCollectionViewModel.selectedTab else {
+        guard !isInPopUpWindow,
+              let (tab, _) = getActiveTabAndIndex(), tab === tabCollectionViewModel.selectedTab else {
 
             browserTabViewController.openNewTab(with: .newtab)
             return
@@ -1235,6 +1273,10 @@ extension MainViewController {
 
         tabCollectionViewModel.append(tabs: otherTabs, andSelect: false)
         tabCollectionViewModel.tabCollection.localHistoryOfRemovedTabs += otherLocalHistoryOfRemovedTabs
+
+        // Tabs from `otherTabCollectionViewModels` were moved to `tabCollectionViewModel`
+        // clear the collection models so they are empty at `deinit` and no deinit checks assert.
+        otherTabCollectionViewModels.forEach { $0.clearAfterMerge() }
     }
 
     // MARK: - Printing
@@ -1437,7 +1479,7 @@ extension MainViewController: NSMenuItemValidation {
 
         // Pin Tab
         case #selector(MainViewController.pinOrUnpinTab(_:)):
-            guard getActiveTabAndIndex()?.tab.isUrl == true,
+            guard getActiveTabAndIndex()?.tab.content.canBePinned == true,
                   tabCollectionViewModel.pinnedTabsManager != nil,
                   !isBurner
             else {

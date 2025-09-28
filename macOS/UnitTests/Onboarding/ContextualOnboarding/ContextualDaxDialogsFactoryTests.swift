@@ -242,14 +242,13 @@ final class ContextualDaxDialogsFactoryTests: XCTestCase {
         let mainViewController = MainViewController(
             tabCollectionViewModel: TabCollectionViewModel(tabCollection: TabCollection(tabs: [])),
             autofillPopoverPresenter: DefaultAutofillPopoverPresenter(),
-            aiChatSidebarProvider: AIChatSidebarProvider(),
+            aiChatSidebarProvider: AIChatSidebarProvider(featureFlagger: MockFeatureFlagger()),
             fireCoordinator: fireCoordinator
         )
         let window = MockWindow(isVisible: false)
         let mainWindowController = MainWindowController(
             window: window,
             mainViewController: mainViewController,
-            popUp: false,
             fireViewModel: fireCoordinator.fireViewModel,
             visualStyle: NSApp.delegateTyped.visualStyle
         )
