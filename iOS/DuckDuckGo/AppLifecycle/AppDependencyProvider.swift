@@ -84,7 +84,25 @@ private class MockAuthenticationStateProvider: SubscriptionAuthenticationStatePr
     var isUserAuthenticated: Bool { return false }
 }
 
+private class MockOAuthClient: OAuthClient {
+    func getTokens(policy: GetTokensPolicy) async throws -> OAuthTokens {
+        throw NSError(domain: "MockError", code: 0, userInfo: nil)
+    }
+    
+    func refreshTokens() async throws -> OAuthTokens {
+        throw NSError(domain: "MockError", code: 0, userInfo: nil)
+    }
+    
+    func deleteAllTokens() throws {}
+}
+
 private class MockSubscriptionAuthBridge: SubscriptionAuthV1toV2Bridge {
+    private let mockEnvironment: SubscriptionEnvironment
+    
+    init(environment: SubscriptionEnvironment) {
+        self.mockEnvironment = environment
+    }
+    
     var isUserAuthenticated: Bool { return false }
     
     func getAccessToken() async throws -> String { 
@@ -103,7 +121,7 @@ private class MockSubscriptionAuthBridge: SubscriptionAuthV1toV2Bridge {
     func isSubscriptionPresent() -> Bool { return false }
     func url(for type: SubscriptionURL) -> URL { return URL(string: "https://mock.test")! }
     var email: String? { return nil }
-    var currentEnvironment: SubscriptionEnvironment { return .production }
+    var currentEnvironment: SubscriptionEnvironment { return mockEnvironment }
     func urlForPurchaseFromRedirect(redirectURLComponents: URLComponents, tld: TLD) -> URL { 
         return URL(string: "https://mock.test")! 
     }
@@ -201,13 +219,15 @@ final class AppDependencyProvider: DependencyProvider {
             self.subscriptionManager = nil
             self.subscriptionManagerV2 = nil
             isUsingAuthV2 = false
-            subscriptionAuthMigrator = AuthMigrator(oAuthClient: nil, pixelHandler: pixelHandler, isAuthV2Enabled: false)
+            
+            let mockOAuthClient = MockOAuthClient()
+            subscriptionAuthMigrator = AuthMigrator(oAuthClient: mockOAuthClient, pixelHandler: pixelHandler, isAuthV2Enabled: false)
             
             // Mock implementations to prevent network calls
             accessTokenProvider = { return nil }
             tokenHandler = MockTokenHandler()
             authenticationStateProvider = MockAuthenticationStateProvider()
-            subscriptionAuthV1toV2Bridge = MockSubscriptionAuthBridge()
+            subscriptionAuthV1toV2Bridge = MockSubscriptionAuthBridge(environment: subscriptionEnvironment)
         } else {
 
         let keychainType = KeychainType.dataProtection(.named(subscriptionAppGroup))
