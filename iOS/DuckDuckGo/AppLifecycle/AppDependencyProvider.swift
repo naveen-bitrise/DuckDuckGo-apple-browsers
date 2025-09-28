@@ -34,6 +34,7 @@ import PixelExperimentKit
 import Networking
 import Configuration
 import Network
+import Combine
 
 protocol DependencyProvider {
 
@@ -68,6 +69,45 @@ protocol DependencyProvider {
 
     // DBP
     var dbpSettings: DataBrokerProtectionSettings { get }
+}
+
+// MARK: - Mock implementations for testing
+
+private class MockTokenHandler: SubscriptionTokenHandling {
+    func getToken() async throws -> String { throw NSError(domain: "MockError", code: 0, userInfo: nil) }
+    func removeToken() async throws {}
+    func refreshToken() async throws {}
+    func adoptToken(_ someKindOfToken: Any) async throws {}
+}
+
+private class MockAuthenticationStateProvider: SubscriptionAuthenticationStateProvider {
+    var isUserAuthenticated: Bool { return false }
+}
+
+private class MockSubscriptionAuthBridge: SubscriptionAuthV1toV2Bridge {
+    var isUserAuthenticated: Bool { return false }
+    
+    func getAccessToken() async throws -> String { 
+        throw NSError(domain: "MockError", code: 0, userInfo: nil) 
+    }
+    
+    func isFeatureIncludedInSubscription(_ feature: Entitlement.ProductName) async throws -> Bool { return false }
+    func isFeatureEnabled(_ feature: Entitlement.ProductName) async throws -> Bool { return false }
+    func currentSubscriptionFeatures() async throws -> [Entitlement.ProductName] { return [] }
+    func signOut(notifyUI: Bool, userInitiated: Bool) async {}
+    var canPurchase: Bool { return false }
+    var canPurchasePublisher: AnyPublisher<Bool, Never> { Just(false).eraseToAnyPublisher() }
+    func getSubscription(cachePolicy: SubscriptionCachePolicy) async throws -> DuckDuckGoSubscription {
+        throw NSError(domain: "MockError", code: 0, userInfo: nil)
+    }
+    func isSubscriptionPresent() -> Bool { return false }
+    func url(for type: SubscriptionURL) -> URL { return URL(string: "https://mock.test")! }
+    var email: String? { return nil }
+    var currentEnvironment: SubscriptionEnvironment { return .production }
+    func urlForPurchaseFromRedirect(redirectURLComponents: URLComponents, tld: TLD) -> URL { 
+        return URL(string: "https://mock.test")! 
+    }
+    func isUserEligibleForFreeTrial() -> Bool { return false }
 }
 
 /// Provides dependencies for objects that are not directly instantiated
@@ -120,13 +160,15 @@ final class AppDependencyProvider: DependencyProvider {
         nw_tls_create_options()
 #endif
 
+        let isTesting = ProcessInfo().arguments.contains("testing")
+        
         let featureFlaggerOverrides = FeatureFlagLocalOverrides(keyValueStore: UserDefaults(suiteName: FeatureFlag.localOverrideStoreName)!,
                                                                 actionHandler: FeatureFlagOverridesPublishingHandler<FeatureFlag>()
         )
         let experimentManager = ExperimentCohortsManager(store: ExperimentsDataStore(), fireCohortAssigned: PixelKit.fireExperimentEnrollmentPixel(subfeatureID:experiment:))
 
         var featureFlagger: FeatureFlagger
-        if [.unitTests, .integrationTests, .xcPreviews].contains(AppVersion.runType) {
+        if [.unitTests, .integrationTests, .xcPreviews].contains(AppVersion.runType) || isTesting {
             let mockFeatureFlagger = MockFeatureFlagger()
             self.contentScopeExperimentsManager = MockContentScopeExperimentManager()
             self.featureFlagger = mockFeatureFlagger
@@ -152,6 +194,21 @@ final class AppDependencyProvider: DependencyProvider {
         var tokenHandler: any SubscriptionTokenHandling
         var accessTokenProvider: () async -> String?
         var authenticationStateProvider: (any SubscriptionAuthenticationStateProvider)!
+
+        // Skip subscription initialization in testing mode to prevent network calls
+        if isTesting {
+            // Use mock implementations for testing
+            self.subscriptionManager = nil
+            self.subscriptionManagerV2 = nil
+            isUsingAuthV2 = false
+            subscriptionAuthMigrator = AuthMigrator(oAuthClient: nil, pixelHandler: pixelHandler, isAuthV2Enabled: false)
+            
+            // Mock implementations to prevent network calls
+            accessTokenProvider = { return nil }
+            tokenHandler = MockTokenHandler()
+            authenticationStateProvider = MockAuthenticationStateProvider()
+            subscriptionAuthV1toV2Bridge = MockSubscriptionAuthBridge()
+        } else {
 
         let keychainType = KeychainType.dataProtection(.named(subscriptionAppGroup))
         let keychainManager = KeychainManager(attributes: SubscriptionTokenKeychainStorageV2.defaultAttributes(keychainType: keychainType), pixelHandler: pixelHandler)
@@ -288,6 +345,7 @@ final class AppDependencyProvider: DependencyProvider {
                 try? tokenStorageV2.saveTokenContainer(nil)
                 subscriptionEndpointService.clearSubscription()
             }
+        }
         }
 
         vpnFeatureVisibility = DefaultNetworkProtectionVisibility(authenticationStateProvider: authenticationStateProvider)
