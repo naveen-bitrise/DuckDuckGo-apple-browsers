@@ -111,6 +111,9 @@
                <Test
                   Identifier = "ConfigurationManagerIntegrationTests/testTdsAreFetchedFromURLBasedOnPrivacyConfigExperiment()">
                </Test>
+               <Test
+                  Identifier = "InactivityNotificationSchedulerServiceTests">
+               </Test>
             </SkippedTests>
          </TestableReference>
          <TestableReference
