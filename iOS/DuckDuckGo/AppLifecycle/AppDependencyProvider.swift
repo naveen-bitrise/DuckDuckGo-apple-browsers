@@ -84,17 +84,6 @@ private class MockAuthenticationStateProvider: SubscriptionAuthenticationStatePr
     var isUserAuthenticated: Bool { return false }
 }
 
-private class MockOAuthClient: OAuthClient {
-    func getTokens(policy: GetTokensPolicy) async throws -> OAuthTokens {
-        throw NSError(domain: "MockError", code: 0, userInfo: nil)
-    }
-    
-    func refreshTokens() async throws -> OAuthTokens {
-        throw NSError(domain: "MockError", code: 0, userInfo: nil)
-    }
-    
-    func deleteAllTokens() throws {}
-}
 
 private class MockSubscriptionAuthBridge: SubscriptionAuthV1toV2Bridge {
     private let mockEnvironment: SubscriptionEnvironment
@@ -215,13 +204,21 @@ final class AppDependencyProvider: DependencyProvider {
 
         // Skip subscription initialization in testing mode to prevent network calls
         if isTesting {
-            // Use mock implementations for testing
+            // Use mock implementations for testing to prevent network calls
             self.subscriptionManager = nil
             self.subscriptionManagerV2 = nil
             isUsingAuthV2 = false
             
-            let mockOAuthClient = MockOAuthClient()
-            subscriptionAuthMigrator = AuthMigrator(oAuthClient: mockOAuthClient, pixelHandler: pixelHandler, isAuthV2Enabled: false)
+            // Create a minimal auth migrator that won't make network calls
+            let keychainType = KeychainType.dataProtection(.named(subscriptionAppGroup))
+            let keychainManager = KeychainManager(attributes: SubscriptionTokenKeychainStorageV2.defaultAttributes(keychainType: keychainType), pixelHandler: pixelHandler)
+            let tokenStorageV2 = SubscriptionTokenKeychainStorageV2(keychainManager: keychainManager) { _, _ in }
+            let legacyAccountStorage = SubscriptionTokenKeychainStorage(keychainType: .dataProtection(.named(subscriptionAppGroup)))
+            let authEnvironment: OAuthEnvironment = subscriptionEnvironment.serviceEnvironment == .production ? .production : .staging
+            let authService = DefaultOAuthService(baseURL: authEnvironment.url, apiService: APIServiceFactory.makeAPIServiceForAuthV2(withUserAgent: DefaultUserAgentManager.duckDuckGoUserAgent))
+            let authClient = DefaultOAuthClient(tokensStorage: tokenStorageV2, legacyTokenStorage: legacyAccountStorage, authService: authService)
+            
+            subscriptionAuthMigrator = AuthMigrator(oAuthClient: authClient, pixelHandler: pixelHandler, isAuthV2Enabled: false)
             
             // Mock implementations to prevent network calls
             accessTokenProvider = { return nil }
