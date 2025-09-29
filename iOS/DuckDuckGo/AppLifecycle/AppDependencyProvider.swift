@@ -177,7 +177,7 @@ final class AppDependencyProvider: DependencyProvider {
         var featureFlagger: FeatureFlagger
         if [.unitTests, .integrationTests, .xcPreviews].contains(AppVersion.runType) || isTesting {
             // In testing mode, create MockFeatureFlagger with no enabled features to prevent network calls
-            let mockFeatureFlagger = MockFeatureFlagger(enabledFeatureFlags: [])
+            let mockFeatureFlagger = MockFeatureFlagger(internalUserDecider: internalUserDecider, enabledFeatureFlags: [])
             self.contentScopeExperimentsManager = MockContentScopeExperimentManager()
             self.featureFlagger = mockFeatureFlagger
             featureFlagger = mockFeatureFlagger
