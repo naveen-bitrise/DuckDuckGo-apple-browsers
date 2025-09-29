@@ -236,7 +236,7 @@ final class AppDependencyProvider: DependencyProvider {
         vpnSettings.alignTo(subscriptionEnvironment: subscriptionEnvironment)
         dbpSettings.alignTo(subscriptionEnvironment: subscriptionEnvironment)
 
-        if isUsingAuthV2 {
+        if isUsingAuthV2 && !isTesting {
             Logger.subscription.debug("Configuring Subscription V2")
 
             var apiServiceForSubscription = APIServiceFactory.makeAPIServiceForSubscription(withUserAgent: DefaultUserAgentManager.duckDuckGoUserAgent)
@@ -289,7 +289,7 @@ final class AppDependencyProvider: DependencyProvider {
             tokenHandler = subscriptionManager
             authenticationStateProvider = subscriptionManager
             subscriptionAuthV1toV2Bridge = subscriptionManager
-        } else {
+        } else if !isTesting {
             Logger.subscription.debug("Configuring Subscription V1")
             let entitlementsCache = UserDefaultsCache<[Entitlement]>(userDefaults: subscriptionUserDefaults,
                                                                      key: UserDefaultsCacheKey.subscriptionEntitlements,
@@ -338,6 +338,15 @@ final class AppDependencyProvider: DependencyProvider {
                 try? tokenStorageV2.saveTokenContainer(nil)
                 subscriptionEndpointService.clearSubscription()
             }
+        } else {
+            // Testing mode - use mock implementations to prevent network calls
+            Logger.subscription.debug("Skipping subscription configuration in testing mode")
+            self.subscriptionManager = nil
+            self.subscriptionManagerV2 = nil
+            accessTokenProvider = { return nil }
+            tokenHandler = MockTokenHandler()
+            authenticationStateProvider = MockAuthenticationStateProvider()
+            subscriptionAuthV1toV2Bridge = MockSubscriptionAuthBridge(environment: subscriptionEnvironment)
         }
 
         vpnFeatureVisibility = DefaultNetworkProtectionVisibility(authenticationStateProvider: authenticationStateProvider)
