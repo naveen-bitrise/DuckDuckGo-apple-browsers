@@ -339,7 +339,6 @@ final class AppDependencyProvider: DependencyProvider {
                 subscriptionEndpointService.clearSubscription()
             }
         }
-        }
 
         vpnFeatureVisibility = DefaultNetworkProtectionVisibility(authenticationStateProvider: authenticationStateProvider)
         networkProtectionKeychainTokenStore = NetworkProtectionKeychainTokenStore(accessTokenProvider: accessTokenProvider)
