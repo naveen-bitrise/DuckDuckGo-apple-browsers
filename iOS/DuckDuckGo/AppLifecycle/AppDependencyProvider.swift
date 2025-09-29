@@ -176,9 +176,8 @@ final class AppDependencyProvider: DependencyProvider {
 
         var featureFlagger: FeatureFlagger
         if [.unitTests, .integrationTests, .xcPreviews].contains(AppVersion.runType) || isTesting {
-            let mockFeatureFlagger = MockFeatureFlagger()
-            // Disable Privacy Pro Auth V2 in testing mode to prevent network calls
-            mockFeatureFlagger.enabledFeatureFlags = []
+            // In testing mode, create MockFeatureFlagger with no enabled features to prevent network calls
+            let mockFeatureFlagger = MockFeatureFlagger(enabledFeatureFlags: [])
             self.contentScopeExperimentsManager = MockContentScopeExperimentManager()
             self.featureFlagger = mockFeatureFlagger
             featureFlagger = mockFeatureFlagger
