@@ -89,6 +89,12 @@
                <Test
                   Identifier = "SpecialErrorPageNavigationHandlerTests/whenWebViewIsNilled_ThenWebViewIsDeallocated()">
                </Test>
+               <Test
+                  Identifier = "UnifiedFeedbackFormViewModelTests">
+               </Test>
+               <Test
+                  Identifier = "WideEventServiceTests">
+               </Test>
             </SkippedTests>
          </TestableReference>
          <TestableReference
@@ -104,6 +110,9 @@
             <SkippedTests>
                <Test
                   Identifier = "ConfigurationManagerIntegrationTests/testTdsAreFetchedFromURLBasedOnPrivacyConfigExperiment()">
+               </Test>
+               <Test
+                  Identifier = "InactivityNotificationSchedulerServiceTests">
                </Test>
             </SkippedTests>
          </TestableReference>
