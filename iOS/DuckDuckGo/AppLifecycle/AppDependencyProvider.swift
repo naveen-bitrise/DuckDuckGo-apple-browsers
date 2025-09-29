@@ -237,18 +237,6 @@ final class AppDependencyProvider: DependencyProvider {
         dbpSettings.alignTo(subscriptionEnvironment: subscriptionEnvironment)
 
         if isUsingAuthV2 {
-        subscriptionAuthMigrator = AuthMigrator(oAuthClient: authClient,
-                                                pixelHandler: pixelHandler,
-                                                isAuthV2Enabled: isAuthV2Enabled)
-
-        isUsingAuthV2 = subscriptionAuthMigrator.isReadyToUseAuthV2
-
-        vpnSettings.isAuthV2Enabled = isUsingAuthV2
-        dbpSettings.isAuthV2Enabled = isUsingAuthV2
-        vpnSettings.alignTo(subscriptionEnvironment: subscriptionEnvironment)
-        dbpSettings.alignTo(subscriptionEnvironment: subscriptionEnvironment)
-
-        if isUsingAuthV2 {
             Logger.subscription.debug("Configuring Subscription V2")
 
             var apiServiceForSubscription = APIServiceFactory.makeAPIServiceForSubscription(withUserAgent: DefaultUserAgentManager.duckDuckGoUserAgent)
