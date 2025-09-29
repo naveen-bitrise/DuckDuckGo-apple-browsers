@@ -177,6 +177,8 @@ final class AppDependencyProvider: DependencyProvider {
         var featureFlagger: FeatureFlagger
         if [.unitTests, .integrationTests, .xcPreviews].contains(AppVersion.runType) || isTesting {
             let mockFeatureFlagger = MockFeatureFlagger()
+            // Disable Privacy Pro Auth V2 in testing mode to prevent network calls
+            mockFeatureFlagger.enabledFeatureFlags = []
             self.contentScopeExperimentsManager = MockContentScopeExperimentManager()
             self.featureFlagger = mockFeatureFlagger
             featureFlagger = mockFeatureFlagger
@@ -202,31 +204,6 @@ final class AppDependencyProvider: DependencyProvider {
         var accessTokenProvider: () async -> String?
         var authenticationStateProvider: (any SubscriptionAuthenticationStateProvider)!
 
-        // Skip subscription initialization in testing mode to prevent network calls
-        if isTesting {
-            // Use mock implementations for testing to prevent network calls
-            self.subscriptionManager = nil
-            self.subscriptionManagerV2 = nil
-            isUsingAuthV2 = false
-            
-            // Create a minimal auth migrator that won't make network calls
-            let keychainType = KeychainType.dataProtection(.named(subscriptionAppGroup))
-            let keychainManager = KeychainManager(attributes: SubscriptionTokenKeychainStorageV2.defaultAttributes(keychainType: keychainType), pixelHandler: pixelHandler)
-            let tokenStorageV2 = SubscriptionTokenKeychainStorageV2(keychainManager: keychainManager) { _, _ in }
-            let legacyAccountStorage = SubscriptionTokenKeychainStorage(keychainType: .dataProtection(.named(subscriptionAppGroup)))
-            let authEnvironment: OAuthEnvironment = subscriptionEnvironment.serviceEnvironment == .production ? .production : .staging
-            let authService = DefaultOAuthService(baseURL: authEnvironment.url, apiService: APIServiceFactory.makeAPIServiceForAuthV2(withUserAgent: DefaultUserAgentManager.duckDuckGoUserAgent))
-            let authClient = DefaultOAuthClient(tokensStorage: tokenStorageV2, legacyTokenStorage: legacyAccountStorage, authService: authService)
-            
-            subscriptionAuthMigrator = AuthMigrator(oAuthClient: authClient, pixelHandler: pixelHandler, isAuthV2Enabled: false)
-            
-            // Mock implementations to prevent network calls
-            accessTokenProvider = { return nil }
-            tokenHandler = MockTokenHandler()
-            authenticationStateProvider = MockAuthenticationStateProvider()
-            subscriptionAuthV1toV2Bridge = MockSubscriptionAuthBridge(environment: subscriptionEnvironment)
-        } else {
-
         let keychainType = KeychainType.dataProtection(.named(subscriptionAppGroup))
         let keychainManager = KeychainManager(attributes: SubscriptionTokenKeychainStorageV2.defaultAttributes(keychainType: keychainType), pixelHandler: pixelHandler)
         let tokenStorageV2 = SubscriptionTokenKeychainStorageV2(keychainManager: keychainManager) { accessType, error in
@@ -249,6 +226,18 @@ final class AppDependencyProvider: DependencyProvider {
                                             legacyTokenStorage: legacyAccountStorage,
                                             authService: authService)
         let isAuthV2Enabled = featureFlagger.isFeatureOn(.privacyProAuthV2)
+        subscriptionAuthMigrator = AuthMigrator(oAuthClient: authClient,
+                                                pixelHandler: pixelHandler,
+                                                isAuthV2Enabled: isAuthV2Enabled)
+
+        isUsingAuthV2 = subscriptionAuthMigrator.isReadyToUseAuthV2
+
+        vpnSettings.isAuthV2Enabled = isUsingAuthV2
+        dbpSettings.isAuthV2Enabled = isUsingAuthV2
+        vpnSettings.alignTo(subscriptionEnvironment: subscriptionEnvironment)
+        dbpSettings.alignTo(subscriptionEnvironment: subscriptionEnvironment)
+
+        if isUsingAuthV2 {
         subscriptionAuthMigrator = AuthMigrator(oAuthClient: authClient,
                                                 pixelHandler: pixelHandler,
                                                 isAuthV2Enabled: isAuthV2Enabled)
